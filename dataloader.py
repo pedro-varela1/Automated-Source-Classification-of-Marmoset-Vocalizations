@@ -2,6 +2,7 @@ from PIL import Image
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
+import os
 
 # Class to create a dataset for classification
 class ClassificationDataset(Dataset):
@@ -48,3 +49,37 @@ def create_dataloader(
     print("Done!\n")
 
     return train_dataloader, test_dataloader
+
+
+class PredictionDataset(Dataset):
+    def __init__(self, data_dir):
+        """
+        Dataset for loading all test images with their respective labels
+        
+        Args:
+            data_dir: Directory containing images
+            transform: Optional transform to be applied on images
+        """
+        self.transform = transforms.Compose([
+            transforms.Resize((160, 160)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
+        self.data_dir = data_dir
+        self.images = []
+
+        for img_name in os.listdir(data_dir):
+            img_path = os.path.join(data_dir, img_name)
+            self.images.append(img_path)
+    
+    def __len__(self):
+        return len(self.images)
+    
+    def __getitem__(self, idx):
+        img_path = self.images[idx]
+        image = Image.open(img_path).convert('L')  # Convert to grayscale
+        
+        if self.transform:
+            image = self.transform(image)
+        
+        return image, img_path
