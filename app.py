@@ -9,7 +9,7 @@ import numpy as np
 from preprocessing import DataPreparation
 from dataloader import PredictionDataset
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 
 app = Flask(__name__)
@@ -114,6 +114,7 @@ def update_csv(csv_file, predictions, paths_index):
     df = pd.read_csv(csv_file)
     df['prediction'] = np.nan
     df['confidence'] = np.nan
+    df['image_path'] = np.nan
     df['base64_image'] = np.nan
 
     for index, row in df.iterrows():
@@ -122,6 +123,7 @@ def update_csv(csv_file, predictions, paths_index):
             if image_path:
                 df.at[index, 'prediction'] = predictions[image_path]['prediction']
                 df.at[index, 'confidence'] = predictions[image_path]['confidence']
+                df.at[index, 'image_path'] = image_path
                 df.at[index, 'base64_image'] = paths_index[str(index)]['base64_image']
     df.to_csv(csv_file, index=False)
 
@@ -163,20 +165,17 @@ def classify_vocalizations():
                 model = model.to(DEVICE)
             except Exception as e:
                 print(f"Error loading model: {e}")
-                return jsonify({'error': 'Error loading model'}), 500
             
             # Get predictions
             try:
                 predictions = classify_spectrograms(model, temp_spec_folder, DEVICE)
             except Exception as e:
                 print(f"Error classifying spectrograms: {e}")
-                return jsonify({'error': 'Error classifying spectrograms'}), 500
             try:
                 # Update CSV file with predictions
                 update_csv(csv_path, predictions, paths_index)
             except Exception as e:
                 print(f"Error updating CSV file: {e}")
-                return jsonify({'error': 'Error updating CSV file'}), 500
             
             # Send updated CSV file
             memory_file = BytesIO()
@@ -215,4 +214,5 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(port=5000,
+            debug=True)
