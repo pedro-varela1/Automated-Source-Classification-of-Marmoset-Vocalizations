@@ -112,17 +112,17 @@ def update_csv(csv_file, predictions, paths_index):
         paths_index: Dicionário com os índices sendo o caminho da imagem e os valores sendo o índice
     """
     df = pd.read_csv(csv_file)
-    df['prediction'] = np.nan
-    df['confidence'] = np.nan
-    df['image_path'] = np.nan
-    df['base64_image'] = np.nan
+    df['prediction'] = ""
+    df['confidence'] = ""
+    df['image_path'] = ""
+    df['base64_image'] = ""
 
-    for index, row in df.iterrows():
+    for index, _ in df.iterrows():
         if str(index) in paths_index:
             image_path = paths_index[str(index)]['image_path']
             if image_path:
-                df.at[index, 'prediction'] = predictions[image_path]['prediction']
-                df.at[index, 'confidence'] = predictions[image_path]['confidence']
+                df.at[index, 'prediction'] = str(predictions[image_path]['prediction'])
+                df.at[index, 'confidence'] = str(predictions[image_path]['confidence'])
                 df.at[index, 'image_path'] = image_path
                 df.at[index, 'base64_image'] = paths_index[str(index)]['base64_image']
     df.to_csv(csv_file, index=False)
