@@ -25,7 +25,10 @@ Finally, run the app:
 docker container run -p 5000:5000 <tag>/<container_name>:<version>
 ```
 
+In your browser, go to _http://127.0.0.1:5000/_.
+
 ### App UI
+
 ![App UI](<app_ui.png>)
 
 ### Data Entry
