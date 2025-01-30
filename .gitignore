@@ -1,3 +1,4 @@
 # Ignore checkpoints directory
 checkpoints/
 data/
+gradcam_visualizations/
