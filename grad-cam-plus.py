@@ -11,8 +11,6 @@ from tqdm import tqdm
 import random
 import matplotlib.colors as mcolors
 
-THRESHOLD = 0.8
-
 class GradCAMPlusPlus:
     def __init__(self, model, target_layer):
         """
@@ -88,6 +86,43 @@ class GradCAMPlusPlus:
         
         return cam.squeeze().cpu().detach().numpy()
 
+# def apply_colormap(cam, img_array):
+#     """
+#     Aplica o mapa de calor sobre a imagem original usando matplotlib
+    
+#     Args:
+#         cam: Mapa de ativação (160, 160)
+#         img_array: Array numpy da imagem original (160, 160)
+    
+#     Returns:
+#         visualization: Imagem com mapa de calor sobreposto
+#     """
+#     # Normaliza a imagem original para [0, 1]
+#     img_norm = (img_array - img_array.min()) / (img_array.max() - img_array.min())
+    
+#     # Cria uma máscara para valores entre 0.8 e 1.0
+#     mask = (cam >= 0.8)
+    
+#     # Renormaliza os valores dentro do intervalo [0.8, 1.0] para [0, 1]
+#     cam_thresholded = np.zeros_like(cam)
+#     cam_thresholded[mask] = (cam[mask] - 0.8) / 0.2  # Normaliza o intervalo [0.8, 1.0] para [0, 1]
+    
+#     # Cria um mapa de cores personalizado
+#     cmap = plt.cm.jet
+#     colored_cam = cmap(cam_thresholded)
+    
+#     # Expande a imagem em escala de cinza para 3 canais
+#     img_rgb = np.stack([img_norm] * 3, axis=-1)
+    
+#     # Cria a visualização final com transparência
+#     visualization = np.zeros((img_rgb.shape[0], img_rgb.shape[1], 3))
+    
+#     # Aplica o mapa de calor apenas onde a máscara é True
+#     visualization[mask] = (0.3 * img_rgb[mask] + 0.7 * colored_cam[mask, :3])
+#     visualization[~mask] = img_rgb[~mask]
+    
+#     return visualization.clip(0, 1)
+
 def apply_colormap(cam, img_array):
     """
     Aplica o mapa de calor sobre a imagem original usando matplotlib
@@ -102,28 +137,17 @@ def apply_colormap(cam, img_array):
     # Normaliza a imagem original para [0, 1]
     img_norm = (img_array - img_array.min()) / (img_array.max() - img_array.min())
     
-    # Cria uma máscara para valores entre 0.8 e 1.0
-    mask = (cam >= 0.8)
-    
-    # Renormaliza os valores dentro do intervalo [0.8, 1.0] para [0, 1]
-    cam_thresholded = np.zeros_like(cam)
-    cam_thresholded[mask] = (cam[mask] - 0.8) / 0.2  # Normaliza o intervalo [0.8, 1.0] para [0, 1]
-    
     # Cria um mapa de cores personalizado
     cmap = plt.cm.jet
-    colored_cam = cmap(cam_thresholded)
+    colored_cam = cmap(cam)[:, :, :3]
     
     # Expande a imagem em escala de cinza para 3 canais
     img_rgb = np.stack([img_norm] * 3, axis=-1)
     
-    # Cria a visualização final com transparência
-    visualization = np.zeros((img_rgb.shape[0], img_rgb.shape[1], 3))
+    # Combina a imagem original com o mapa de calor
+    visualization = (0.3 * img_rgb + 0.7 * colored_cam).clip(0, 1)
     
-    # Aplica o mapa de calor apenas onde a máscara é True
-    visualization[mask] = (0.3 * img_rgb[mask] + 0.7 * colored_cam[mask, :3])
-    visualization[~mask] = img_rgb[~mask]
-    
-    return visualization.clip(0, 1)
+    return visualization
 
 def save_gradcam_visualization(model, img_path, save_path, class_names, device):
     """
@@ -175,11 +199,11 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
     
     # Plot do mapa de calor
     ax2.imshow(visualization)
-    ax2.set_title(f'Grad-CAM++ (threshold={THRESHOLD})\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
+    ax2.set_title(f'Grad-CAM++\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
     ax2.axis('off')
     
-    # Adiciona uma barra de cores modificada para mostrar apenas o intervalo 0.8-1.0
-    norm = mcolors.Normalize(vmin=THRESHOLD, vmax=1.0)
+    # Adiciona uma barra de cores normalizada
+    norm = mcolors.Normalize(vmin=0, vmax=1.0)
     cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.jet), 
                        ax=ax2, orientation='vertical', label='Importance')
     
@@ -192,7 +216,7 @@ def main():
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     TEST_DATA_DIR = r"J:\all_animais_phee\firmino_img\exp"
     CHECKPOINT_PATH = "./checkpoints/best_model_classification.pth"
-    OUTPUT_DIR = "./gradcam_visualizations"
+    OUTPUT_DIR = f"./gradcam_visualizations_block8"
     
     # Cria diretório de saída se não existir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
