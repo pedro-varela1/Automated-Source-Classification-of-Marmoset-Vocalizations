@@ -11,6 +11,8 @@ from tqdm import tqdm
 import random
 import matplotlib.colors as mcolors
 
+THRESHOLD = 0.8
+
 class GradCAMPlusPlus:
     def __init__(self, model, target_layer):
         """
@@ -79,7 +81,6 @@ class GradCAMPlusPlus:
         # Gera o mapa de ativação
         cam = (weights * activations).sum(dim=1, keepdim=True)
         cam = F.relu(cam)
-        
         # Normalização e redimensionamento para 160x160
         cam = F.interpolate(cam, size=(160, 160), mode='bilinear', align_corners=False)
         cam = cam - cam.min()
@@ -135,7 +136,6 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
         class_names: Lista com nomes das classes
         device: Dispositivo (cuda/cpu)
     """
-    threshold = 0.9
     # Carrega e pré-processa a imagem
     transform = transforms.Compose([
         transforms.Resize((160, 160)),
@@ -175,11 +175,11 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
     
     # Plot do mapa de calor
     ax2.imshow(visualization)
-    ax2.set_title(f'Grad-CAM++ (threshold={threshold})\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
+    ax2.set_title(f'Grad-CAM++ (threshold={THRESHOLD})\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
     ax2.axis('off')
     
     # Adiciona uma barra de cores modificada para mostrar apenas o intervalo 0.8-1.0
-    norm = mcolors.Normalize(vmin=threshold, vmax=1.0)
+    norm = mcolors.Normalize(vmin=THRESHOLD, vmax=1.0)
     cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.jet), 
                        ax=ax2, orientation='vertical', label='Importance')
     
