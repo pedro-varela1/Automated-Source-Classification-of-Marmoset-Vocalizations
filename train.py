@@ -164,7 +164,7 @@ class ClassificationTrainer:
             if test_loss < best_test_loss:
                 best_test_loss = test_loss
                 torch.save(checkpoint, 
-                           os.path.join(save_dir, 'best_model_classification.pth'))
+                           os.path.join(save_dir, 'best_model_classification_cam.pth'))
         
         # Plot training curves
         self.plot_training_curves()
@@ -210,7 +210,7 @@ def main():
     )
     
     # Create model
-    model = InceptionResnetV1(device='cuda' if torch.cuda.is_available() else 'cpu', classify=True, num_classes=9)
+    model = InceptionResnetV1(device='cuda' if torch.cuda.is_available() else 'cpu', classify=True, num_classes=9, cam=True)
     
     # Create trainer
     trainer = ClassificationTrainer(
