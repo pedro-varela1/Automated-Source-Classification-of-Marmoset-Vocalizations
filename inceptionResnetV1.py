@@ -90,7 +90,7 @@ class Block17(nn.Module):
 
 class Block8(nn.Module):
 
-    def __init__(self, scale=1.0, noReLU=False):
+    def __init__(self, scale=1.0, noReLU=False, cam=False):
         super().__init__()
 
         self.scale = scale
@@ -103,8 +103,11 @@ class Block8(nn.Module):
             BasicConv2d(192, 192, kernel_size=(1,3), stride=1, padding=(0,1)),
             BasicConv2d(192, 192, kernel_size=(3,1), stride=1, padding=(1,0))
         )
-
-        self.conv2d = nn.Conv2d(384, 1792, kernel_size=1, stride=1)
+        if cam:
+            # If cam, conv2d have more kernel size
+            self.conv2d
+        else:
+            self.conv2d = nn.Conv2d(384, 1792, kernel_size=20, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
 
@@ -191,12 +194,13 @@ class InceptionResnetV1(nn.Module):
         dropout_prob {float} -- Dropout probability. (default: {0.5})
         device {torch.device} -- Device to load model parameters. (default: {None})
     """
-    def __init__(self, classify=False, rgb=False, num_classes=None, dropout_prob=0.7, embeddings_size=512, device=None):
+    def __init__(self, classify=False, rgb=False, num_classes=None, cam=False, dropout_prob=0.7, embeddings_size=512, device=None):
         super().__init__()
         self.classify = classify
         self.rgb = rgb
         self.num_classes = num_classes
         self.embeddings_size = embeddings_size
+        self.cam = cam
         if self.classify and self.num_classes is None:
             raise Exception('Must specify num_classes for classification task.')
 
@@ -274,7 +278,7 @@ class InceptionResnetV1(nn.Module):
         x = self.repeat_2(x)
         x = self.mixed_7a(x)
         x = self.repeat_3(x)
-        x = self.block8(x)
+        x = self.block8(x, cam=self.cam)
         x = self.avgpool_1a(x)
         x = self.dropout(x)
         x = self.last_linear(x.view(x.shape[0], -1))
