@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 from dataloader import create_dataloader
-from inceptionResnetV1 import InceptionResnetV1
+from inceptionResnetV1 import InceptionResnetV1, InceptionResnetV2
 
 class ClassificationTrainer:
     def __init__(self, 
@@ -210,7 +210,8 @@ def main():
     )
     
     # Create model
-    model = InceptionResnetV1(device='cuda' if torch.cuda.is_available() else 'cpu', classify=True, num_classes=9, cam=True)
+    # model = InceptionResnetV1(device='cuda' if torch.cuda.is_available() else 'cpu', classify=True, num_classes=9)
+    model = InceptionResnetV2(device='cuda' if torch.cuda.is_available() else 'cpu', classify=True, num_classes=9) # InceptionResnetV2 for cam
     
     # Create trainer
     trainer = ClassificationTrainer(
