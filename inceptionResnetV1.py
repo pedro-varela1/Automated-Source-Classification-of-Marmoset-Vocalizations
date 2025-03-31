@@ -103,7 +103,7 @@ class Block8(nn.Module):
             BasicConv2d(192, 192, kernel_size=(1,3), stride=1, padding=(0,1)),
             BasicConv2d(192, 192, kernel_size=(3,1), stride=1, padding=(1,0))
         )
-
+        
         self.conv2d = nn.Conv2d(384, 1792, kernel_size=1, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
