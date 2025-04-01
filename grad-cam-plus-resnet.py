@@ -1,4 +1,3 @@
-from inceptionResnetV1 import InceptionResnetV1
 import torchvision.datasets as datasets
 import torch
 import torch.nn.functional as F
@@ -10,16 +9,15 @@ import os
 from tqdm import tqdm
 import matplotlib.colors as mcolors
 import random
+from train_resnet import create_resnet50_model
 
 class GradCAMPlusPlus:
-    def __init__(self, model, target_layer):
+    def __init__(self, model):
         """
         Args:
-            model: Modelo InceptionResnetV1 treinado
-            target_layer: Camada alvo para visualização (ex: 'block8')
+            model: Modelo treinado
         """
         self.model = model
-        self.target_layer = target_layer
         self.gradients = None
         self.activations = None
         
@@ -30,7 +28,7 @@ class GradCAMPlusPlus:
     
     def _get_target_layer(self):
         """Obtém a camada alvo do modelo"""
-        return self.model.block8
+        return self.model.layer4
     
     def _save_activation(self, module, input, output):
         self.activations = output
@@ -44,7 +42,6 @@ class GradCAMPlusPlus:
         
         Args:
             input_tensor: Tensor de entrada (1, C, H, W)
-            target_class: Classe alvo para visualização (opcional)
         
         Returns:
             cam: Mapa de ativação normalizado
@@ -67,13 +64,11 @@ class GradCAMPlusPlus:
         
         # Calcula os pesos do Grad-CAM
         weights = gradients.mean(dim=[2, 3], keepdim=True)
-
-        print(activations.shape)
-        print(weights.shape)
         
         # Gera o mapa de ativação
         cam = (weights * activations).sum(dim=1, keepdim=True)
         cam = F.relu(cam)  # ReLU para manter apenas valores positivos
+        print(f"Mapa de ativação: {cam.squeeze().cpu().detach().numpy()}")
         
         # Normalização e redimensionamento para 160x160
         cam = F.interpolate(cam, size=(160, 160), mode='bilinear', align_corners=False)
@@ -96,26 +91,15 @@ def apply_colormap(cam, img_array):
     # Normaliza a imagem original para [0, 1]
     img_norm = (img_array - img_array.min()) / (img_array.max() - img_array.min())
     
-    # Cria uma máscara para valores entre 0.8 e 1.0
-    mask = (cam >= 0.8)
-    
-    # Renormaliza os valores dentro do intervalo [0.8, 1.0] para [0, 1]
-    cam_thresholded = np.zeros_like(cam)
-    cam_thresholded[mask] = (cam[mask] - 0.8) / 0.2  # Normaliza o intervalo [0.8, 1.0] para [0, 1]
-    
     # Cria um mapa de cores personalizado
     cmap = plt.cm.jet
-    colored_cam = cmap(cam_thresholded)
+    colored_cam = cmap(cam)
     
     # Expande a imagem em escala de cinza para 3 canais
     img_rgb = np.stack([img_norm] * 3, axis=-1)
     
-    # Cria a visualização final com transparência
-    visualization = np.zeros((img_rgb.shape[0], img_rgb.shape[1], 3))
-    
-    # Aplica o mapa de calor apenas onde a máscara é True
-    visualization[mask] = (0.3 * img_rgb[mask] + 0.7 * colored_cam[mask, :3])
-    visualization[~mask] = img_rgb[~mask]
+    # Cria a visualização final mesclando a imagem original com o mapa de calor
+    visualization = 0.3 * img_rgb + 0.7 * colored_cam[:, :, :3]
     
     return visualization.clip(0, 1)
 
@@ -130,7 +114,6 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
         class_names: Lista com nomes das classes
         device: Dispositivo (cuda/cpu)
     """
-    threshold = 0.9
     # Carrega e pré-processa a imagem
     transform = transforms.Compose([
         transforms.Resize((160, 160)),
@@ -141,9 +124,9 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
     # Carrega a imagem em escala de cinza
     img = Image.open(img_path).convert('L')
     input_tensor = transform(img).unsqueeze(0).to(device)
-    
+    print(input_tensor)
     # Inicializa Grad-CAM++
-    grad_cam = GradCAMPlusPlus(model, target_layer='block8')
+    grad_cam = GradCAMPlusPlus(model)
     
     # Obtém a predição
     with torch.no_grad():
@@ -170,12 +153,11 @@ def save_gradcam_visualization(model, img_path, save_path, class_names, device):
     
     # Plot do mapa de calor
     ax2.imshow(visualization)
-    ax2.set_title(f'Grad-CAM (threshold={threshold})\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
+    ax2.set_title(f'Grad-CAM\nPrediction: {class_names[pred_class]}\nConfidence: {prob:.2%}')
     ax2.axis('off')
     
     # Adiciona uma barra de cores modificada para mostrar apenas o intervalo 0.8-1.0
-    norm = mcolors.Normalize(vmin=threshold, vmax=1.0)
-    cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.jet), 
+    cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.jet), 
                        ax=ax2, orientation='vertical', label='Importance')
     
     plt.tight_layout()
@@ -186,8 +168,8 @@ def main():
     # Configurações
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     TEST_DATA_DIR = r"J:\all_animais_phee\firmino_img\exp"
-    CHECKPOINT_PATH = "./checkpoints/best_model_classification.pth"
-    OUTPUT_DIR = "./gradcam_visualizations"
+    CHECKPOINT_PATH = "./checkpoints/best_model_classification_resnet.pth"
+    OUTPUT_DIR = "./gradcam_visualizations_resnet"
     
     # Cria diretório de saída se não existir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -197,7 +179,7 @@ def main():
     CLASS_NAMES = dataset.classes
     num_classes = len(CLASS_NAMES)
     
-    model = InceptionResnetV1(device=DEVICE, classify=True, num_classes=num_classes)
+    model = create_resnet50_model(num_classes=num_classes)
     checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
     model.load_state_dict(checkpoint['state_dict'])
     model = model.to(DEVICE)

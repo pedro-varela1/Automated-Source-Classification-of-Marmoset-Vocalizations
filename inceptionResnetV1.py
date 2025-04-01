@@ -356,11 +356,10 @@ class InceptionResnetV2(nn.Module):
         )
         self.block8 = Block8(noReLU=True)
         self.spatial_features = nn.Sequential(
-            BasicConv2d(1792, 512, kernel_size=1, stride=1)
+            BasicConv2d(1792, self.embeddings_size, kernel_size=1, stride=1, padding=20)
         )
         self.avgpool_1a = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(dropout_prob)
-        self.last_linear = nn.Linear(1792, self.embeddings_size, bias=False)
         self.last_bn = nn.BatchNorm1d(self.embeddings_size, eps=0.001, momentum=0.1, affine=True)
 
         if self.classify and self.num_classes is not None:
@@ -396,8 +395,7 @@ class InceptionResnetV2(nn.Module):
         x = self.spatial_features(x)
         x = self.avgpool_1a(x)
         x = self.dropout(x)
-        x = self.last_linear(x.view(x.shape[0], -1))
-        x = self.last_bn(x)
+        x = self.last_bn(x.view(x.shape[0], -1))
         return x
     
     def forward(self, x):

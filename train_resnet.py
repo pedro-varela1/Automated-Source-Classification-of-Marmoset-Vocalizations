@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 from dataloader import create_dataloader
-from torchvision.models import resnet50
+from torchvision.models import resnet18
 
 class ClassificationTrainer:
     def __init__(self, 
@@ -202,7 +202,7 @@ def create_resnet50_model(num_classes=9):
         Modified ResNet50 model
     """
     # Load pretrained ResNet50 model
-    model = resnet50(weights=None)
+    model = resnet18(weights=None)
     
     # Modify the first conv layer to accept 1-channel input
     model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
