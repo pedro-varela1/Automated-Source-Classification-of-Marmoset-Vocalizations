@@ -2,13 +2,12 @@ import torchvision.datasets as datasets
 import torch
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
 from torchvision import transforms
 import os
 from tqdm import tqdm
-import matplotlib.patches as patches
 import random
 from inceptionResnetV1 import InceptionResnetV1
+import pandas as pd
 
 def predict_with_occlusion(model, input_tensor, region_idx, region_size, num_regions, device):
     """
@@ -17,7 +16,7 @@ def predict_with_occlusion(model, input_tensor, region_idx, region_size, num_reg
     Args:
         model: Modelo treinado
         input_tensor: Tensor da imagem original (1, C, H, W)
-        region_idx: Índice da região a ser ocluída (0-9)
+        region_idx: Índice da região a ser ocluída (0-99 para grid 10x10)
         region_size: Tamanho da região (ex: 16)
         num_regions: Número de regiões por dimensão (ex: 10)
         device: Dispositivo (cuda/cpu)
@@ -38,8 +37,9 @@ def predict_with_occlusion(model, input_tensor, region_idx, region_size, num_reg
     start_x = col * region_size
     end_y = start_y + region_size
     end_x = start_x + region_size
-    # Aplica a oclusão (zera os pixels na região) para o menor valor possível de pixel no total
-    occluded_tensor[0, :, start_y:end_y, start_x:end_x] = occluded_tensor.min()
+    
+    # Aplica a oclusão (zera os pixels na região)
+    occluded_tensor[0, :, start_y:end_y, start_x:end_x] = 0
     
     # Faz a predição
     with torch.no_grad():
@@ -47,9 +47,9 @@ def predict_with_occlusion(model, input_tensor, region_idx, region_size, num_reg
     
     return output, occluded_tensor
 
-def find_important_region(model, img_path, class_names, device, num_regions=10):
+def create_occlusion_importance_map(model, img_path, device, num_regions=10):
     """
-    Encontra a região mais importante para a predição correta usando oclusão
+    Cria um mapa de importância para todas as regiões usando oclusão
     
     Args:
         model: Modelo treinado
@@ -60,11 +60,9 @@ def find_important_region(model, img_path, class_names, device, num_regions=10):
     
     Returns:
         img_np: Array numpy da imagem original
-        important_region_idx: Índice da região mais importante
-        bbox_coords: Coordenadas do bounding box (x_min, y_min, width, height)
+        importance_map: Mapa de importância (matriz num_regions x num_regions)
         true_class: Classe verdadeira predita
         orig_prob: Probabilidade original
-        min_prob: Probabilidade mínima após oclusão
     """
     # Carrega e pré-processa a imagem
     transform = transforms.Compose([
@@ -89,108 +87,44 @@ def find_important_region(model, img_path, class_names, device, num_regions=10):
     region_size = image_size // num_regions
     total_regions = num_regions * num_regions
     
-    # Lista para armazenar a probabilidade para cada região ocluída
-    probs = []
+    # Armazena o impacto de ocluir cada região
+    occlusion_impact = np.zeros((num_regions, num_regions))
     
     # Testa cada região
     for region_idx in range(total_regions):
+        # Calcula a posição da região
+        row = region_idx // num_regions
+        col = region_idx % num_regions
+        
         # Faz a predição com a região ocluída
         output, _ = predict_with_occlusion(model, input_tensor, region_idx, region_size, num_regions, device)
         
         # Calcula a probabilidade da classe verdadeira
         prob = torch.softmax(output, dim=1)[0, true_class].item()
-        probs.append(prob)
+        
+        # Calcula o impacto (1 - (prob / orig_prob))
+        if prob > orig_prob:
+            impact = 0
+        else:
+            impact = 1 - (prob / orig_prob)
+        occlusion_impact[row, col] = impact
     
-    # Encontra a região com a menor probabilidade (mais importante)
-    important_region_idx = np.argmin(probs)
-    min_prob = probs[important_region_idx]
+    # O impacto mais alto indica a região mais importante
+    importance_map = occlusion_impact
     
-    # Calcula as coordenadas do bounding box
-    row = important_region_idx // num_regions
-    col = important_region_idx % num_regions
-    x_min = col * region_size
-    y_min = row * region_size
+    return img_np, importance_map, true_class, orig_prob
     
-    bbox_coords = (x_min, y_min, region_size, region_size)
-    
-    return img_np, important_region_idx, bbox_coords, true_class, orig_prob, min_prob
-
-def visualize_important_region(img_np, bbox_coords, true_class, class_names, orig_prob, min_prob):
-    """
-    Cria uma visualização com bounding box para a região mais importante
-    
-    Args:
-        img_np: Array numpy da imagem original
-        bbox_coords: Coordenadas do bounding box (x_min, y_min, width, height)
-        true_class: Classe verdadeira predita
-        class_names: Lista com nomes das classes
-        orig_prob: Probabilidade original
-        min_prob: Probabilidade mínima após oclusão
-    
-    Returns:
-        fig: Figura matplotlib com a visualização
-    """
-    # Desempacota as coordenadas
-    x_min, y_min, width, height = bbox_coords
-    
-    # Cria a figura
-    fig, ax = plt.subplots(figsize=(8, 8))
-    
-    # Mostra a imagem original
-    ax.imshow(img_np, cmap='gray')
-    
-    # Adiciona o bounding box
-    rect = patches.Rectangle((x_min, y_min), width, height, 
-                           linewidth=2, edgecolor='r', facecolor='none')
-    ax.add_patch(rect)
-    
-    # Adiciona o valor da queda de probabilidade como texto acima do bounding box
-    prob_drop = orig_prob - min_prob
-    ax.text(x_min, y_min - 10, f'Prob: {min_prob:.4f} (queda: {prob_drop:.4f})', 
-          color='red', fontsize=12, backgroundcolor='white')
-    
-    ax.set_title(f'Região mais importante para a classe: {class_names[true_class]}')
-    ax.axis('off')
-    
-    # Adiciona informações sobre a predição original
-    plt.figtext(0.5, 0, f'Classe: {class_names[true_class]} (Prob. Original: {orig_prob:.4f})', 
-              ha='center', fontsize=12)
-    
-    return fig
-
-def save_occlusion_importance_visualization(model, img_path, save_path, class_names, device, num_regions=10):
-    """
-    Salva a visualização da região mais importante usando oclusão
-    
-    Args:
-        model: Modelo treinado
-        img_path: Caminho para a imagem de entrada
-        save_path: Caminho para salvar a visualização
-        class_names: Lista com nomes das classes
-        device: Dispositivo (cuda/cpu)
-        num_regions: Número de regiões por dimensão
-    """
-    # Encontra a região mais importante
-    img_np, important_region_idx, bbox_coords, true_class, orig_prob, min_prob = find_important_region(
-        model, img_path, class_names, device, num_regions)
-    
-    # Cria a visualização
-    fig = visualize_important_region(img_np, bbox_coords, true_class, class_names, orig_prob, min_prob)
-    
-    # Salva a figura
-    plt.tight_layout()
-    plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    plt.close()
-
 def main():
     # Configurações
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     TEST_DATA_DIR = r"J:\all_animais_phee\firmino_img\exp"
     CHECKPOINT_PATH = "./checkpoints/best_model_classification.pth"
-    OUTPUT_DIR = "./occlusion_importance_visualizations"
-    
-    # Cria diretório de saída se não existir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    NUM_REGIONS = 10  # Número de regiões por dimensão (10x10)
+    NUM_SAMPLES = 50  # Número de amostras a serem processadas por diretório
+    OUTPUT_FILE = f"occlusion_results_r{NUM_REGIONS}_s{NUM_SAMPLES}.csv"
+    # Get class names in alphabetical order
+    class_names = sorted(os.listdir(TEST_DATA_DIR))
+
     
     # Carrega o modelo
     dataset = datasets.ImageFolder(root=TEST_DATA_DIR)
@@ -203,20 +137,39 @@ def main():
     model = model.to(DEVICE)
     model.eval()
     
+    # Create a single DataFrame to store all results
+    all_results = pd.DataFrame()
+    
     # Processa todas as imagens de teste
-    for root, dirs, files in os.walk(TEST_DATA_DIR):
+    for root, _, files in os.walk(TEST_DATA_DIR):
         image_files = [file for file in files if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        sample_files = random.sample(image_files, min(len(image_files), 40))
-
+        sample_files = random.sample(image_files, min(len(image_files), NUM_SAMPLES))
+        
+        print(f"Processing {len(sample_files)} images in {root}")
         for file in tqdm(sample_files, desc='Processando imagens'):
             img_path = os.path.join(root, file)
-            os.makedirs(os.path.join(OUTPUT_DIR, os.path.basename(root)), exist_ok=True)
-            save_path = os.path.join(OUTPUT_DIR, os.path.basename(root),
-                                   f'occlusion_{os.path.basename(img_path)}')
             try:
-                save_occlusion_importance_visualization(model, img_path, save_path, CLASS_NAMES, DEVICE)
+                _, importance_map, true_class, orig_prob = create_occlusion_importance_map(
+                        model, img_path, DEVICE, num_regions=NUM_REGIONS)
+                
+                # Create DataFrame for this image
+                df = pd.DataFrame(importance_map.flatten(), columns=['impact'])
+                df['image_path'] = img_path
+                df['class_name'] = os.path.basename(root)
+                df['orig_prob'] = orig_prob
+                df['row_region'] = np.repeat(np.arange(NUM_REGIONS), NUM_REGIONS)
+                df['col_region'] = np.tile(np.arange(NUM_REGIONS), NUM_REGIONS)
+                df['pred_class'] = class_names[int(true_class)]
+                
+                # Append to the combined results
+                all_results = pd.concat([all_results, df], ignore_index=True)
+                
             except Exception as e:
                 print(f"Erro ao processar {img_path}: {str(e)}")
+    
+    # Save all results to a single CSV
+    all_results.to_csv(OUTPUT_FILE, index=False)
+    print(f"All results saved to {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()

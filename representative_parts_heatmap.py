@@ -1,128 +1,18 @@
-import torchvision.datasets as datasets
-import torch
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
-from torchvision import transforms
 import os
-from tqdm import tqdm
 import matplotlib.patches as patches
-import matplotlib.colors as mcolors
-from matplotlib.colors import LinearSegmentedColormap
-import random
-from inceptionResnetV1 import InceptionResnetV1
+import pandas as pd
 
-def predict_with_occlusion(model, input_tensor, region_idx, region_size, num_regions, device):
-    """
-    Faz uma predição com uma região específica ocluída (pixels zerados)
-    
-    Args:
-        model: Modelo treinado
-        input_tensor: Tensor da imagem original (1, C, H, W)
-        region_idx: Índice da região a ser ocluída (0-99 para grid 10x10)
-        region_size: Tamanho da região (ex: 16)
-        num_regions: Número de regiões por dimensão (ex: 10)
-        device: Dispositivo (cuda/cpu)
-    
-    Returns:
-        output: Saída do modelo
-        occluded_tensor: Tensor da imagem com a região ocluída
-    """
-    # Cria uma cópia do tensor de entrada
-    occluded_tensor = input_tensor.clone()
-    
-    # Calcula a posição da região a ser ocluída
-    row = region_idx // num_regions
-    col = region_idx % num_regions
-    
-    # Calcula as coordenadas da região
-    start_y = row * region_size
-    start_x = col * region_size
-    end_y = start_y + region_size
-    end_x = start_x + region_size
-    
-    # Aplica a oclusão (zera os pixels na região)
-    occluded_tensor[0, :, start_y:end_y, start_x:end_x] = 0
-    
-    # Faz a predição
-    with torch.no_grad():
-        output = model(occluded_tensor)
-    
-    return output, occluded_tensor
-
-def create_occlusion_importance_map(model, img_path, class_names, device, num_regions=10):
-    """
-    Cria um mapa de importância para todas as regiões usando oclusão
-    
-    Args:
-        model: Modelo treinado
-        img_path: Caminho para a imagem de entrada
-        class_names: Lista com nomes das classes
-        device: Dispositivo (cuda/cpu)
-        num_regions: Número de regiões por dimensão
-    
-    Returns:
-        img_np: Array numpy da imagem original
-        importance_map: Mapa de importância (matriz num_regions x num_regions)
-        true_class: Classe verdadeira predita
-        orig_prob: Probabilidade original
-    """
-    # Carrega e pré-processa a imagem
-    transform = transforms.Compose([
-        transforms.Resize((160, 160)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5])
-    ])
-    
-    # Carrega a imagem em escala de cinza
-    img = Image.open(img_path).convert('L')
-    img_np = np.array(img.resize((160, 160)))
-    input_tensor = transform(img).unsqueeze(0).to(device)
-    
-    # Faz a predição original
-    with torch.no_grad():
-        output = model(input_tensor)
-        true_class = torch.argmax(output).item()
-        orig_prob = torch.softmax(output, dim=1)[0, true_class].item()
-    
-    # Calcula o tamanho de cada região
-    image_size = 160
-    region_size = image_size // num_regions
-    total_regions = num_regions * num_regions
-    
-    # Armazena o impacto de ocluir cada região
-    occlusion_impact = np.zeros((num_regions, num_regions))
-    
-    # Testa cada região
-    for region_idx in range(total_regions):
-        # Calcula a posição da região
-        row = region_idx // num_regions
-        col = region_idx % num_regions
-        
-        # Faz a predição com a região ocluída
-        output, _ = predict_with_occlusion(model, input_tensor, region_idx, region_size, num_regions, device)
-        
-        # Calcula a probabilidade da classe verdadeira
-        prob = torch.softmax(output, dim=1)[0, true_class].item()
-        
-        # Calcula o impacto (queda na probabilidade)
-        impact = orig_prob - prob
-        occlusion_impact[row, col] = impact
-    
-    # O impacto mais alto indica a região mais importante
-    importance_map = occlusion_impact
-    
-    return img_np, importance_map, true_class, orig_prob
-
-def visualize_importance_heatmap(img_np, importance_map, true_class, class_names, orig_prob, region_size=16):
+def visualize_importance_heatmap(img_np, importance_map, class_name, orig_prob, region_size=16):
     """
     Cria uma visualização com mapa de calor para a importância de todas as regiões
     
     Args:
         img_np: Array numpy da imagem original
         importance_map: Mapa de importância (matriz)
-        true_class: Classe verdadeira predita
-        class_names: Lista com nomes das classes
+        class_name: Nome da classe
         orig_prob: Probabilidade original
         region_size: Tamanho de cada região
     
@@ -164,7 +54,7 @@ def visualize_importance_heatmap(img_np, importance_map, true_class, class_names
     cmap = plt.cm.jet
     
     # Sobrepõe o mapa de calor com transparência
-    heatmap = ax2.imshow(heatmap_img, cmap=cmap, alpha=0.6)
+    heatmap = ax2.imshow(heatmap_img, cmap=cmap, alpha=0.3)
     
     # Destaca a região mais importante com uma caixa branca
     x_min = max_col * region_size
@@ -175,79 +65,107 @@ def visualize_importance_heatmap(img_np, importance_map, true_class, class_names
     
     # Adiciona o valor da queda de probabilidade como texto acima do retângulo
     ax2.text(x_min, y_min - 5, f'Impacto: {max_impact:.4f}', 
-           color='white', fontsize=10, backgroundcolor='black')
+           color='white', fontsize=5, backgroundcolor='black')
     
-    ax2.set_title(f'Mapa de Importância (Queda na Probabilidade)')
+    ax2.set_title(f'Mapa de Impacto')
     ax2.axis('off')
     
     # Adiciona uma barra de cores
-    cbar = plt.colorbar(heatmap, ax=ax2, orientation='vertical', label='Importância (Queda na Probabilidade)')
+    cbar = plt.colorbar(heatmap, ax=ax2, orientation='vertical', label='Impacto')
     
     # Adiciona informações sobre a predição original
-    plt.suptitle(f'Análise de Importância para Classe: {class_names[true_class]} (Prob. Original: {orig_prob:.4f})')
+    plt.suptitle(f'Análise de Impacto para Classe: {class_name} (Prob. Original: {orig_prob:.4f})')
     
     return fig
 
-def save_occlusion_heatmap_visualization(model, img_path, save_path, class_names, device, num_regions=10):
-    """
-    Salva a visualização do mapa de calor de importância usando oclusão
-    
-    Args:
-        model: Modelo treinado
-        img_path: Caminho para a imagem de entrada
-        save_path: Caminho para salvar a visualização
-        class_names: Lista com nomes das classes
-        device: Dispositivo (cuda/cpu)
-        num_regions: Número de regiões por dimensão
-    """
-    # Cria o mapa de importância
-    img_np, importance_map, true_class, orig_prob = create_occlusion_importance_map(
-        model, img_path, class_names, device, num_regions)
-    
-    # Cria a visualização
-    region_size = 160 // num_regions
-    fig = visualize_importance_heatmap(img_np, importance_map, true_class, class_names, orig_prob, region_size)
-    
-    # Salva a figura
-    plt.tight_layout()
-    plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    plt.close()
-
 def main():
-    # Configurações
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    TEST_DATA_DIR = r"J:\all_animais_phee\firmino_img\exp"
-    CHECKPOINT_PATH = "./checkpoints/best_model_classification.pth"
+    
+    INPUT_PATH = "occlusion_results_r10_s50.csv"
     OUTPUT_DIR = "./occlusion_importance_visualizations_heatmap"
-    
-    # Cria diretório de saída se não existir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    # Carrega o modelo
-    dataset = datasets.ImageFolder(root=TEST_DATA_DIR)
-    CLASS_NAMES = dataset.classes
-    num_classes = len(CLASS_NAMES)
-    
-    model = InceptionResnetV1(device=DEVICE, classify=True, num_classes=num_classes)
-    checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE, weights_only=False)
-    model.load_state_dict(checkpoint['state_dict'])
-    model = model.to(DEVICE)
-    model.eval()
-    
-    # Processa todas as imagens de teste
-    for root, dirs, files in os.walk(TEST_DATA_DIR):
-        image_files = [file for file in files if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        sample_files = random.sample(image_files, min(len(image_files), 40))
 
-        for file in tqdm(sample_files, desc='Processando imagens'):
-            img_path = os.path.join(root, file)
-            os.makedirs(os.path.join(OUTPUT_DIR, os.path.basename(root)), exist_ok=True)
-            save_path = os.path.join(OUTPUT_DIR, os.path.basename(root),
-                                   f'occlusion_heatmap_{os.path.basename(img_path)}')
-            try:
-                save_occlusion_heatmap_visualization(model, img_path, save_path, CLASS_NAMES, DEVICE)
-            except Exception as e:
-                print(f"Erro ao processar {img_path}: {str(e)}")
+    NUM_REGIONS = int(INPUT_PATH.split("_")[2].split(".")[0][1:])  # 10
+    # SAMPLES = int(INPUT_PATH.split("_")[3][1:])  # 50
+
+    # Load dataframe
+    df = pd.read_csv(INPUT_PATH)
+    
+    # # Loop through each unique "image_path"
+    # for image_path in df['image_path'].unique():
+
+    #     # Selct rows for the current image
+    #     image_df = df[df['image_path'] == image_path]
+
+    #     # Get the fixed values to image as the most frequent
+    #     pred_class = image_df['pred_class'].mode()[0]
+    #     orig_prob = image_df['orig_prob'].mode()[0]
+    #     class_name = image_df['class_name'].mode()[0]
+
+    #     if pred_class != class_name:
+    #         print(f"Skipping image {image_path} due to class mismatch.")
+    #         continue
+
+    #     # Load image
+    #     img_np = np.array(
+    #         Image.open(image_path).convert('L').resize((160, 160))
+    #         )
+        
+    #     # Create the importance map matrix with "row_region" and "col_region"
+    #     importance_map = np.zeros((NUM_REGIONS, NUM_REGIONS))
+    #     for _, row in image_df.iterrows():
+    #         row_region = row['row_region']
+    #         col_region = row['col_region']
+    #         impact = row['impact']
+    #         importance_map[row_region, col_region] = impact
+
+    #     # Create the heatmap visualization
+    #     fig = visualize_importance_heatmap(
+    #         img_np, importance_map, class_name, orig_prob, 160//NUM_REGIONS
+    #         )
+        
+    #     # Save the figure
+    #     # Create a unique filename
+    #     image_name = os.path.basename(image_path)
+    #     output_filename = os.path.join(OUTPUT_DIR, f"heatmap_{image_name}")
+    #     plt.savefig(output_filename, bbox_inches='tight', dpi=300)
+    #     plt.close(fig)     
+
+    # Get mean impact for each region in the images that have the same class_name
+    # Loop through each unique "class_name"
+    for class_name in df['class_name'].unique():
+        # Select rows for the current class
+        class_df = df[df['class_name'] == class_name]
+        class_df = class_df[class_df['pred_class'] == class_name]
+
+        # Get a random sample image path for the class
+        sample_image_path = class_df['image_path'].sample().values[0]
+        img_np = np.array(
+            Image.open(sample_image_path).convert('L').resize((160, 160))
+            )
+        orig_prob = class_df['orig_prob'].mean()    # Use mean probability for the class
+
+        # Create the importance map matrix with "row_region" and "col_region"
+        importance_map = np.zeros((NUM_REGIONS, NUM_REGIONS))
+        i=0
+        for _, row in class_df.iterrows():
+            row_region = row['row_region']
+            col_region = row['col_region']
+            impact = row['impact']
+            importance_map[row_region, col_region] += impact
+            i+=1
+
+        # Normalize the importance map
+        importance_map /= i
+
+        # Create the heatmap visualization
+        fig = visualize_importance_heatmap(
+            img_np, importance_map, class_name, orig_prob, 160//NUM_REGIONS
+            )
+        
+        # Save the figure
+        output_filename = f"mean_heatmap_{class_name}.png"
+        plt.savefig(output_filename, bbox_inches='tight', dpi=300)
+        plt.close(fig)
 
 if __name__ == "__main__":
     main()
