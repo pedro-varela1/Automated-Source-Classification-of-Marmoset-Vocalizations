@@ -3,5 +3,5 @@ checkpoints/
 data/
 gradcam_visualizations_block8/
 gradcam_visualizations_resnet_v1/
-occlusion_importance_visualizations/
+occlusion_importance_visualizations_heatmap_mean/
 occlusion_importance_visualizations_heatmap/

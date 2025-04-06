@@ -117,10 +117,10 @@ def create_occlusion_importance_map(model, img_path, device, num_regions=10):
 def main():
     # Configurações
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    TEST_DATA_DIR = r"J:\all_animais_phee\firmino_img\exp"
+    TEST_DATA_DIR = "./data/train"
     CHECKPOINT_PATH = "./checkpoints/best_model_classification.pth"
     NUM_REGIONS = 10  # Número de regiões por dimensão (10x10)
-    NUM_SAMPLES = 50  # Número de amostras a serem processadas por diretório
+    NUM_SAMPLES = 100  # Número de amostras a serem processadas por diretório
     OUTPUT_FILE = f"occlusion_results_r{NUM_REGIONS}_s{NUM_SAMPLES}.csv"
     # Get class names in alphabetical order
     class_names = sorted(os.listdir(TEST_DATA_DIR))
